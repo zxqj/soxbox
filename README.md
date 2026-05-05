@@ -67,7 +67,7 @@ cp example.soxbox.yaml ~/config/soxbox.yaml
 ```
 
 | Key | Description | [default] |
-| --- | --- | |
+| --- | --- | --- |
 | `region` | AWS region. The AMI must exist here. | us-east-2 |
 | `aws_profile` | Optional named profile from `~/.aws/credentials`. `null` uses the default chain. | |
 | `security_group` | Security group name (e.g. `default`). | 
