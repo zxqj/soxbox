@@ -133,7 +133,7 @@ wheels = [
 [[package]]
 name = "soxbox"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "botocore", extra = ["crt"] },

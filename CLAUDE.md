@@ -45,7 +45,12 @@ provider chain (env vars, `~/.aws/credentials`, SSO cache, IAM role). The
 "login" credential type that `aws configure` writes by default requires the
 `botocore[crt]` extra — it's pinned in `pyproject.toml` for that reason.
 
-## Config (`config.yaml`)
+## Config (`soxbox.conf`)
+
+YAML-format config file. Discovered (highest precedence first) at
+`~/.config/soxbox.conf`, `/usr/local/etc/soxbox.conf`, `/etc/soxbox.conf`;
+`--config <path>` overrides discovery. Discovery is "first match wins" —
+files are not merged.
 
 The five fields the user originally specified (`security_group`, `ami_id`,
 `key_pair`, `identity_file`, `instance_type`) plus pragmatic additions
@@ -54,8 +59,8 @@ region-scoped), `ssh_user` (depends on the AMI: `ec2-user` for Amazon Linux,
 `ubuntu` for Ubuntu, `admin` for Debian), `aws_profile` (optional named
 profile), and `local_socks_port` (null → pick a free port).
 
-`config.yaml` and `*.pem` are gitignored. `config.example.yaml` is the
-checked-in template with dummy values.
+`config.yaml`, `soxbox.conf`, and `*.pem` are gitignored.
+`soxbox.example.conf` is the checked-in template with dummy values.
 
 ## Operational gotchas
 

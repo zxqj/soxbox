@@ -1,0 +1,25 @@
+# soxbox configuration — YAML. Copy to one of:
+#   ~/.config/soxbox.conf      (highest precedence among search paths)
+#   /usr/local/etc/soxbox.conf
+#   /etc/soxbox.conf           (lowest precedence)
+# or pass an explicit path via --config (which overrides discovery).
+
+# AWS region the instance is launched in. The AMI ID below must exist here.
+region: us-east-1
+
+# (Optional) AWS named profile to use. Leave null to use the default chain
+# (env vars, ~/.aws/credentials, SSO cache, IAM role, etc.).
+aws_profile: null
+
+# EC2 launch parameters
+security_group: default
+ami_id: ami-xxxxxxxxxxxxxxxxx
+key_pair: my-keypair-name
+identity_file: ./my-keypair-name.pem
+instance_type: t2.nano
+
+# SSH login user for the AMI (Amazon Linux: ec2-user, Ubuntu: ubuntu, Debian: admin).
+ssh_user: ec2-user
+
+# (Optional) Local TCP port for the SOCKS5 proxy. Leave null to pick a free port.
+local_socks_port: null

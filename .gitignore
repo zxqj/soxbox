@@ -11,5 +11,7 @@ wheels/
 
 # Local config & secrets — keep these out of git
 config.yaml
+soxbox.conf
+soxbox.yaml
 *.pem
 

@@ -16,9 +16,26 @@ import yaml
 from botocore.exceptions import ClientError, NoCredentialsError
 
 
+# Searched when --config is not given. Highest precedence first.
+CONFIG_SEARCH_PATHS = [
+    os.path.expanduser("~/.config/soxbox.yaml"),
+    "/usr/local/etc/soxbox.yaml",
+    "/etc/soxbox.yaml",
+]
+
+
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def find_config(explicit: str | None) -> str | None:
+    if explicit is not None:
+        return explicit
+    for path in CONFIG_SEARCH_PATHS:
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def find_free_port() -> int:
@@ -112,15 +129,22 @@ def make_firefox_profile(socks_port: int) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config.yaml", help="Path to config YAML")
+    parser.add_argument("--config", default=None, help="Path to config file (overrides discovery)")
     args = parser.parse_args()
 
-    if not os.path.exists(args.config):
-        print(f"Config file not found: {args.config}", file=sys.stderr)
-        print("Copy config.example.yaml to config.yaml and edit it.", file=sys.stderr)
+    config_path = find_config(args.config)
+    if config_path is None:
+        print(
+            "No config file found. Place soxbox.yaml in ~/.config, /usr/local/etc, "
+            "or /etc, or pass --config.",
+            file=sys.stderr,
+        )
+        return 2
+    if not os.path.exists(config_path):
+        print(f"Config file not found: {config_path}", file=sys.stderr)
         return 2
 
-    config = load_config(args.config)
+    config = load_config(config_path)
     region = config.get("region")
     aws_profile = config.get("aws_profile")
     ssh_user = config.get("ssh_user", "ec2-user")

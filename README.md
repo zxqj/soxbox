@@ -22,9 +22,10 @@ terminated.
 aws configure          # static IAM keys
 aws sso login          # SSO
 
-# 2. Create your config in the directory you'll run soxbox from
-cp config.example.yaml config.yaml
-$EDITOR config.yaml    # set ami_id, key_pair, identity_file, region, etc.
+# 2. Create your config. soxbox looks for a `soxbox.conf` (YAML) in
+#    ~/.config, /usr/local/etc, and /etc — in that order of precedence.
+cp soxbox.example.conf ~/.config/soxbox.conf
+$EDITOR ~/.config/soxbox.conf    # set ami_id, key_pair, identity_file, region, etc.
 
 # 3. Make sure the identity file has the right permissions
 chmod 600 ./cenoaws1.pem
@@ -39,7 +40,7 @@ anywhere:
 # Install globally (puts ./soxbox on PATH at ~/.local/bin/soxbox)
 uv tool install .
 
-# Run it (cwd must contain config.yaml, or pass --config)
+# Run it (uses discovered soxbox.conf, or pass --config)
 soxbox
 soxbox --config /path/to/other.yaml
 
@@ -68,7 +69,7 @@ uv run soxbox
 
 What happens:
 
-1. boto3 launches a single EC2 instance using the parameters in `config.yaml`.
+1. boto3 launches a single EC2 instance using the parameters in `soxbox.conf`.
 2. soxbox waits for the instance to reach `running` and for TCP/22 to accept
    connections.
 3. `ssh -D <local_port> -N` is launched, creating a local SOCKS5 listener on
@@ -96,7 +97,7 @@ What happens:
 
 ## Notes
 
-- `config.yaml` and `*.pem` are gitignored — keep them that way.
+- `config.yaml`, `soxbox.conf`, and `*.pem` are gitignored — keep them that way.
 - If the script is killed forcefully (`kill -9`), the instance will *not* be
   terminated. Check the EC2 console or run `aws ec2 describe-instances
   --filters Name=tag:Name,Values=soxbox` to find any leftovers.
