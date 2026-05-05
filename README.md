@@ -66,17 +66,18 @@ It will work out of the box, but in case you want to configure anything
 cp example.soxbox.yaml ~/config/soxbox.yaml
 ```
 
-| Key | Description | [default]
-| --- | --- |
-| `region` | AWS region. The AMI must exist here. | us-east-2
-| `aws_profile` | Optional named profile from `~/.aws/credentials`. `null` uses the default chain. |
+| Key | Description | [default] |
+| --- | --- | |
+| `region` | AWS region. The AMI must exist here. | us-east-2 |
+| `aws_profile` | Optional named profile from `~/.aws/credentials`. `null` uses the default chain. | |
 | `security_group` | Security group name (e.g. `default`). | 
-| `ami_id` | AMI ID to launch. | Looks for Amazon Linux and then Ubuntu instances with nano and micro instances.
-| `key_pair` | EC2 key pair name. | 
-| `identity_file` | Path to the matching `.pem` private key on disk. | ~/.ssh/{key_pair_name}.pem
-| `instance_type` | e.g. `t2.nano`. | Looks for *.nano and *.micro instances (in that order).  Asks you if none are found.
-| `ssh_user` | Login user for the AMI (`ec2-user`, `ubuntu`, `admin`, ...). |
-| `local_socks_port` | Local SOCKS5 port. `null` picks a free one. |
+| `ami_id` | AMI ID to launch. | Looks for Amazon Linux and then Ubuntu instances with nano and micro instances. |
+| `key_pair` | EC2 key pair name. | |
+| `identity_file` | Path to the matching `.pem` private key on disk. | ~/.ssh/{key_pair_name}.pem |
+| `instance_type` | e.g. `t2.nano`. | Looks for *.nano and *.micro instances (in that order).  Asks you if none are found. |
+| `ssh_user` | Login user for the AMI (`ec2-user`, `ubuntu`, `admin`, ...). | |
+| `local_socks_port` | Local SOCKS5 port. `null` picks a free one. | |
+
 
 Looks for config file in these places (listed from lowest to highest precedence)
 * /etc/soxbox.yaml
