@@ -9,11 +9,18 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 import boto3
 import yaml
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import (
+    ClientError,
+    NoCredentialsError,
+    SSOTokenLoadError,
+    TokenRetrievalError,
+    UnauthorizedSSOTokenError,
+)
 
 
 # Searched when --config is not given. Highest precedence first.
@@ -22,6 +29,12 @@ CONFIG_SEARCH_PATHS = [
     "/usr/local/etc/soxbox.yaml",
     "/etc/soxbox.yaml",
 ]
+
+DEFAULT_REGION = "us-east-2"
+DEFAULT_KEY_NAME = "soxbox"
+DEFAULT_SG_NAME = "soxbox"
+# Canonical's AWS account, owner of official Ubuntu AMIs.
+UBUNTU_OWNER_ID = "099720109477"
 
 
 def load_config(path: str) -> dict:
@@ -44,6 +57,61 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+_EXPIRED_CRED_ERROR_CODES = {
+    "ExpiredToken",
+    "ExpiredTokenException",
+    "RequestExpired",
+    "InvalidClientTokenId",
+}
+
+
+def _credentials_valid(session: boto3.Session) -> bool:
+    """Probe the session with a free STS call. Treat expired or missing tokens as invalid."""
+    try:
+        session.client("sts").get_caller_identity()
+        return True
+    except (
+        NoCredentialsError,
+        SSOTokenLoadError,
+        TokenRetrievalError,
+        UnauthorizedSSOTokenError,
+    ):
+        return False
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in _EXPIRED_CRED_ERROR_CODES:
+            return False
+        raise
+
+
+def refresh_sso_credentials(profile: str | None) -> bool:
+    """Run `aws sso login --no-browser` so it prints a URL and waits for the user to authenticate."""
+    if shutil.which("aws") is None:
+        print("`aws` CLI not found; cannot refresh SSO credentials automatically.", file=sys.stderr)
+        return False
+    cmd = ["aws", "sso", "login", "--no-browser"]
+    if profile:
+        cmd += ["--profile", profile]
+    print("AWS credentials are expired. Running `aws sso login`...", file=sys.stderr)
+    try:
+        return subprocess.run(cmd).returncode == 0
+    except KeyboardInterrupt:
+        return False
+
+
+def get_session(region: str, profile: str | None) -> boto3.Session:
+    """Build a boto3 session, transparently refreshing expired SSO credentials."""
+    session = boto3.Session(region_name=region, profile_name=profile)
+    if _credentials_valid(session):
+        return session
+    if not refresh_sso_credentials(profile):
+        raise RuntimeError("could not refresh AWS credentials")
+    session = boto3.Session(region_name=region, profile_name=profile)
+    if not _credentials_valid(session):
+        raise RuntimeError("AWS credentials still invalid after `aws sso login`")
+    return session
+
+
 def wait_for_ssh(host: str, port: int = 22, timeout: int = 240) -> None:
     print(f"Waiting for SSH on {host}:{port}...")
     deadline = time.time() + timeout
@@ -54,6 +122,126 @@ def wait_for_ssh(host: str, port: int = 22, timeout: int = 240) -> None:
         except OSError:
             time.sleep(3)
     raise TimeoutError(f"SSH on {host}:{port} did not become reachable in {timeout}s")
+
+
+def get_caller_public_ip() -> str:
+    with urllib.request.urlopen("https://checkip.amazonaws.com", timeout=5) as r:
+        return r.read().decode().strip()
+
+
+def ensure_keypair(ec2, key_name: str) -> str:
+    """Ensure the AWS keypair and matching ~/.ssh/{key_name}.pem both exist; return the pem path."""
+    pem_path = os.path.expanduser(f"~/.ssh/{key_name}.pem")
+    try:
+        ec2.describe_key_pairs(KeyNames=[key_name])
+        remote_exists = True
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "InvalidKeyPair.NotFound":
+            raise
+        remote_exists = False
+    local_exists = os.path.exists(pem_path)
+
+    if remote_exists and local_exists:
+        return pem_path
+    if remote_exists != local_exists:
+        raise RuntimeError(
+            f"Keypair state mismatch: AWS keypair '{key_name}' "
+            f"{'exists' if remote_exists else 'is missing'} but {pem_path} "
+            f"{'exists' if local_exists else 'is missing'}. "
+            "Remove the orphan and retry."
+        )
+
+    print(f"Creating AWS keypair '{key_name}'...")
+    response = ec2.create_key_pair(KeyName=key_name, KeyType="rsa", KeyFormat="pem")
+    os.makedirs(os.path.dirname(pem_path), exist_ok=True)
+    fd = os.open(pem_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(response["KeyMaterial"])
+    print(f"Saved private key to {pem_path}")
+    return pem_path
+
+
+def ensure_security_group(ec2, name: str) -> str:
+    """Ensure a security group with the given name exists; create + open TCP/22 if needed."""
+    try:
+        ec2.describe_security_groups(GroupNames=[name])
+        return name
+    except ClientError as e:
+        if e.response["Error"]["Code"] not in ("InvalidGroup.NotFound", "InvalidGroupId.NotFound"):
+            raise
+
+    print(f"Creating security group '{name}'...")
+    ec2.create_security_group(GroupName=name, Description="soxbox SSH access")
+    try:
+        my_ip = get_caller_public_ip()
+        ec2.authorize_security_group_ingress(
+            GroupName=name,
+            IpPermissions=[{
+                "IpProtocol": "tcp",
+                "FromPort": 22,
+                "ToPort": 22,
+                "IpRanges": [{"CidrIp": f"{my_ip}/32", "Description": "soxbox SSH"}],
+            }],
+        )
+        print(f"Authorized TCP/22 from {my_ip}/32 in {name}")
+    except Exception as e:
+        print(f"Warning: failed to authorize SSH ingress in {name}: {e}", file=sys.stderr)
+    return name
+
+
+def find_default_ami(ec2) -> tuple[str, str]:
+    """Return (ami_id, ssh_user) for latest Amazon Linux 2023 x86_64, falling back to Ubuntu LTS."""
+    al = ec2.describe_images(
+        Owners=["amazon"],
+        Filters=[
+            {"Name": "name", "Values": ["al2023-ami-*-x86_64"]},
+            {"Name": "state", "Values": ["available"]},
+            {"Name": "architecture", "Values": ["x86_64"]},
+        ],
+    ).get("Images", [])
+    if al:
+        latest = max(al, key=lambda i: i["CreationDate"])
+        return latest["ImageId"], "ec2-user"
+
+    ub = ec2.describe_images(
+        Owners=[UBUNTU_OWNER_ID],
+        Filters=[
+            {"Name": "name", "Values": ["ubuntu/images/hvm-ssd*/ubuntu-*-amd64-server-*"]},
+            {"Name": "state", "Values": ["available"]},
+            {"Name": "architecture", "Values": ["x86_64"]},
+        ],
+    ).get("Images", [])
+    if ub:
+        latest = max(ub, key=lambda i: i["CreationDate"])
+        return latest["ImageId"], "ubuntu"
+
+    raise RuntimeError("No Amazon Linux or Ubuntu AMI found in this region.")
+
+
+def find_default_instance_type(ec2) -> str:
+    """Pick a *.nano then *.micro that's offered in this region; otherwise confirm a fallback with the user."""
+    nano = ["t3.nano", "t3a.nano", "t2.nano"]
+    micro = ["t3.micro", "t3a.micro", "t2.micro"]
+    available = set()
+    paginator = ec2.get_paginator("describe_instance_type_offerings")
+    for page in paginator.paginate(LocationType="region"):
+        for offering in page["InstanceTypeOfferings"]:
+            available.add(offering["InstanceType"])
+    for t in nano + micro:
+        if t in available:
+            return t
+
+    suggestion = "t3.small"
+    answer = input(
+        f"No *.nano or *.micro instance type is available in this region. "
+        f"Use '{suggestion}'? [y/N] "
+    ).strip().lower()
+    if answer in ("y", "yes"):
+        return suggestion
+    chosen = input("Enter instance type to use: ").strip()
+    if not chosen:
+        raise RuntimeError("No instance type provided")
+    return chosen
 
 
 def launch_instance(ec2, config: dict) -> str:
@@ -144,26 +332,55 @@ def main() -> int:
         print(f"Config file not found: {config_path}", file=sys.stderr)
         return 2
 
-    config = load_config(config_path)
-    region = config.get("region")
+    config = load_config(config_path) or {}
+    region = config.get("region") or DEFAULT_REGION
     aws_profile = config.get("aws_profile")
-    ssh_user = config.get("ssh_user", "ec2-user")
     local_port = config.get("local_socks_port") or find_free_port()
-    identity_file = os.path.abspath(os.path.expanduser(config["identity_file"]))
-
-    if not os.path.exists(identity_file):
-        print(f"Identity file not found: {identity_file}", file=sys.stderr)
-        return 2
 
     # Equivalent of `aws configure` / `aws sso login` credentials: boto3.Session
     # walks the default credential provider chain (env vars, ~/.aws/credentials,
-    # ~/.aws/config, SSO cache, IAM role, etc.).
+    # ~/.aws/config, SSO cache, IAM role, etc.). If the cached SSO token is
+    # expired, get_session reruns `aws sso login` so the user can reauthenticate.
     try:
-        session = boto3.Session(region_name=region, profile_name=aws_profile)
-        ec2 = session.client("ec2")
-    except NoCredentialsError:
-        print("No AWS credentials found. Run `aws configure` or `aws sso login` first.", file=sys.stderr)
+        session = get_session(region, aws_profile)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Run `aws configure` or `aws configure sso` to set up credentials.", file=sys.stderr)
         return 2
+    ec2 = session.client("ec2")
+
+    key_pair = config.get("key_pair")
+    identity_file = config.get("identity_file")
+    if key_pair and identity_file:
+        identity_file = os.path.abspath(os.path.expanduser(identity_file))
+        if not os.path.exists(identity_file):
+            print(f"Identity file not found: {identity_file}", file=sys.stderr)
+            return 2
+    elif not key_pair and not identity_file:
+        key_pair = DEFAULT_KEY_NAME
+        identity_file = ensure_keypair(ec2, key_pair)
+    else:
+        print("Set both key_pair and identity_file in config, or neither.", file=sys.stderr)
+        return 2
+
+    security_group = config.get("security_group") or ensure_security_group(ec2, DEFAULT_SG_NAME)
+
+    ami_id = config.get("ami_id")
+    ssh_user = config.get("ssh_user")
+    if not ami_id:
+        ami_id, default_ssh_user = find_default_ami(ec2)
+        ssh_user = ssh_user or default_ssh_user
+    ssh_user = ssh_user or "ec2-user"
+
+    instance_type = config.get("instance_type") or find_default_instance_type(ec2)
+
+    config = {
+        **config,
+        "ami_id": ami_id,
+        "instance_type": instance_type,
+        "key_pair": key_pair,
+        "security_group": security_group,
+    }
 
     instance_id = None
     ssh_proc = None
