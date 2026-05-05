@@ -11,31 +11,8 @@ terminated.
 - An `ssh` client and `firefox` on `PATH`
 - AWS credentials available to boto3 (one of: `aws configure`, `aws sso login`,
   `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars, instance role)
-- An EC2 key pair whose `.pem` file is on disk with mode `0600`
-- A security group (the `default` one is fine) that allows inbound TCP/22 from
-  your IP
-
-## Setup
-
-```sh
-# 1. Authenticate against AWS. Either of these works:
-aws configure          # static IAM keys
-aws sso login          # SSO
-
-# 2. Create your config. soxbox looks for a `soxbox.yaml` in
-#    ~/.config, /usr/local/etc, and /etc — in that order of precedence.
-cp example.soxbox.yaml ~/.config/soxbox.yaml
-$EDITOR ~/.config/soxbox.yaml    # set ami_id, key_pair, identity_file, region, etc.
-
-# 3. Make sure the identity file has the right permissions
-chmod 600 ./private_key.pem
-```
 
 ## Install
-
-`soxbox` is packaged as a uv tool, so you can install it once and call it from
-anywhere:
-
 ```sh
 # Install globally (puts ./soxbox on PATH at ~/.local/bin/soxbox)
 uv tool install .
@@ -43,11 +20,16 @@ uv tool install .
 # Run it (uses discovered soxbox.yaml, or pass --config)
 soxbox
 soxbox --config /path/to/other.yaml
+```
 
 # Upgrade after pulling changes
+```sh
+uv clean
 uv tool install --force .
+```
 
 # Uninstall
+```sh
 uv tool uninstall soxbox
 ```
 
@@ -82,19 +64,32 @@ What happens:
    removes the temporary profile, and terminates the EC2 instance.
 
 ## Config reference
+It will work out of the box, but in case you want to configure anything
 
-| Key | Description |
+```sh
+cp example.soxbox.yaml ~/config/soxbox.yaml
+```
+
+| Key | Description | [default]
 | --- | --- |
-| `region` | AWS region. The AMI must exist here. |
+| `region` | AWS region. The AMI must exist here. | us-east-2
 | `aws_profile` | Optional named profile from `~/.aws/credentials`. `null` uses the default chain. |
-| `security_group` | Security group name (e.g. `default`). |
-| `ami_id` | AMI ID to launch. |
-| `key_pair` | EC2 key pair name. |
-| `identity_file` | Path to the matching `.pem` private key on disk. |
-| `instance_type` | e.g. `t2.nano`. |
+| `security_group` | Security group name (e.g. `default`). | 
+| `ami_id` | AMI ID to launch. | Looks for Amazon Linux and then Ubuntu instances with nano and micro instances.
+| `key_pair` | EC2 key pair name. | 
+| `identity_file` | Path to the matching `.pem` private key on disk. | ~/.ssh/{key_pair_name}.pem
+| `instance_type` | e.g. `t2.nano`. | Looks for *.nano and *.micro instances (in that order).  Asks you if none are found.
 | `ssh_user` | Login user for the AMI (`ec2-user`, `ubuntu`, `admin`, ...). |
 | `local_socks_port` | Local SOCKS5 port. `null` picks a free one. |
 
+
+Looks for config file in these places (listed from lowest to highest precedence)
+* /etc/soxbox.yaml
+* /usr/local/etc/soxbox.yaml
+* ~/.config/soxbox.yaml
+* File passed to --config argument
+
+```
 ## Notes
 
 - `config.yaml`, `soxbox.yaml`, and `*.pem` are gitignored — keep them that way.
