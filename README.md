@@ -16,19 +16,16 @@ terminated.
 ```sh
 # Install globally (puts ./soxbox on PATH at ~/.local/bin/soxbox)
 uv tool install .
-
-# Run it (uses discovered soxbox.yaml, or pass --config)
 soxbox
-soxbox --config /path/to/other.yaml
 ```
 
-# Upgrade after pulling changes
+## Upgrade after pulling changes
 ```sh
 uv clean
 uv tool install --force .
 ```
 
-# Uninstall
+## Uninstall
 ```sh
 uv tool uninstall soxbox
 ```
@@ -82,12 +79,15 @@ cp example.soxbox.yaml ~/config/soxbox.yaml
 | `ssh_user` | Login user for the AMI (`ec2-user`, `ubuntu`, `admin`, ...). |
 | `local_socks_port` | Local SOCKS5 port. `null` picks a free one. |
 
-
 Looks for config file in these places (listed from lowest to highest precedence)
 * /etc/soxbox.yaml
 * /usr/local/etc/soxbox.yaml
 * ~/.config/soxbox.yaml
 * File passed to --config argument
+
+```sh
+soxbox --config myconfig.yaml
+```
 
 ```
 ## Notes
