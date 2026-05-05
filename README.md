@@ -9,23 +9,22 @@ terminated.
 
 - Python 3.14+
 - An `ssh` client and `firefox` on `PATH`
-- AWS credentials available to boto3 (one of: `aws configure`, `aws sso login`,
-  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars, instance role)
+- AWS CLI
 
-## Install
+## Install / Upgrade / Remove
 ```sh
 # Install globally (puts ./soxbox on PATH at ~/.local/bin/soxbox)
 uv tool install .
 soxbox
 ```
 
-## Upgrade after pulling changes
+Upgrade
 ```sh
 uv clean
 uv tool install --force .
 ```
 
-## Uninstall
+Remove
 ```sh
 uv tool uninstall soxbox
 ```
@@ -89,10 +88,10 @@ Looks for config file in these places (listed from lowest to highest precedence)
 soxbox --config myconfig.yaml
 ```
 
-```
 ## Notes
 
 - `config.yaml`, `soxbox.yaml`, and `*.pem` are gitignored — keep them that way.
 - If the script is killed forcefully (`kill -9`), the instance will *not* be
   terminated. Check the EC2 console or run `aws ec2 describe-instances
   --filters Name=tag:Name,Values=soxbox` to find any leftovers.
+- You may specify `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables, which would skip the login-via-browser step; however, it is not recommended to authorize apps this way anymore for security reasons.
