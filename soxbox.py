@@ -320,19 +320,14 @@ def main() -> int:
     parser.add_argument("--config", default=None, help="Path to config file (overrides discovery)")
     args = parser.parse_args()
 
+    # An explicit --config must exist; otherwise discovery is best-effort and
+    # missing config falls back to defaults.
+    if args.config is not None and not os.path.exists(args.config):
+        print(f"Config file not found: {args.config}", file=sys.stderr)
+        return 2
     config_path = find_config(args.config)
-    if config_path is None:
-        print(
-            "No config file found. Place soxbox.yaml in ~/.config, /usr/local/etc, "
-            "or /etc, or pass --config.",
-            file=sys.stderr,
-        )
-        return 2
-    if not os.path.exists(config_path):
-        print(f"Config file not found: {config_path}", file=sys.stderr)
-        return 2
-
-    config = load_config(config_path) or {}
+    config = load_config(config_path) if config_path else {}
+    config = config or {}
     region = config.get("region") or DEFAULT_REGION
     aws_profile = config.get("aws_profile")
     local_port = config.get("local_socks_port") or find_free_port()
